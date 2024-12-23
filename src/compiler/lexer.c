@@ -402,6 +402,12 @@ static bool scan_number_suffix(Lexer *lexer, bool *is_float)
 			next(lexer);
 			while (char_is_digit(c = peek(lexer))) next(lexer);
 			break;
+		case 'b':
+			c = next(lexer);
+			if ((c | 32) != 'f')
+			{
+				return add_error_token(lexer, "This doesn't seem to be a valid literal.");
+			}
 		case 'f':
 			next(lexer);
 			*is_float = true;

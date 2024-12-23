@@ -98,24 +98,26 @@ Float float_neg(Float op)
 }
 
 static char *err_invalid_float_width = "The float width is not valid, it must be one of 16, 32, 64 and 128.";
+static char *err_invalid_bfloat_width = "The only valid bfloat width is 16.";
 static char *err_float_out_of_range = "The float value is out of range.";
 static char *err_float_format_invalid = "The float format is invalid.";
 
-TypeKind float_suffix(char c, const char **index_ref, char** error_ref)
+TypeKind float_suffix(char c, const char **index_ref, char **error_ref)
 {
-	if (c == 'b' && (*index_ref)[0] == 'f' && (*index_ref)[1] == '1' && (*index_ref)[1] == '6')
+	bool is_bf = c == 'b' && (*index_ref)[0] == 'f';
+	if (c == 'f' || is_bf)
 	{
-		(*index_ref) += 4;
-		return TYPE_BF16;
-	}
-	if (c == 'f')
-	{
+		if (is_bf) (*index_ref)++;
 		int i = 0;
 		while ((c = *((*index_ref)++)) && (c >= '0' && c <= '9'))
 		{
 			if (i > 100)
 			{
-				if (error_ref) *error_ref = err_invalid_float_width;
+				if (error_ref)
+				{
+					if (is_bf) *error_ref = err_invalid_bfloat_width;
+					else *error_ref = err_invalid_float_width;
+				}
 				return TYPE_POISONED;
 			}
 			i = i * 10 + c - '0';
@@ -126,13 +128,18 @@ TypeKind float_suffix(char c, const char **index_ref, char** error_ref)
 			case 32:
 				return TYPE_F32;
 			case 16:
+				if (is_bf) return TYPE_BF16;
 				return TYPE_F16;
 			case 64:
 				return TYPE_F64;
 			case 128:
 				return TYPE_F128;
 			default:
-				if (error_ref) *error_ref = err_invalid_float_width;
+				if (error_ref)
+				{
+					if (is_bf) *error_ref = err_invalid_bfloat_width;
+					else *error_ref = err_invalid_float_width;
+				}
 				return TYPE_POISONED;
 		}
 	}
