@@ -5717,20 +5717,19 @@ static bool sema_expr_analyse_op_assign(SemaContext *context, Expr *expr, Expr *
 	if (int_only && !type_flat_is_intlike(flat))
 	{
 		if (allow_bitstruct && flat->type_kind == TYPE_BITSTRUCT) goto BITSTRUCT_OK;
-		RETURN_SEMA_ERROR(left, "Expected an integer here.");
+		RETURN_SEMA_ERROR(left, "Expected an integer here, not a value of type %s.", type_quoted_error_string(left->type));
 	}
 
 	// 4. In any case, these ops are only defined on numbers.
 	if (!type_underlying_is_numeric(flat) && !(is_add_sub && type_underlying_may_add_sub(left->type)))
 	{
-		RETURN_SEMA_ERROR(left, "Expected a numeric type here.");
+		RETURN_SEMA_ERROR(left, "Expected a numeric type here, not a value of type %s.", type_quoted_error_string(left->type));
 	}
 
 BITSTRUCT_OK:
 
 	// 5. Analyse RHS
 	if (!sema_analyse_expr(context, right)) return false;
-
 
 	// 3. Copy type & set properties.
 	if (IS_OPTIONAL(right) && !IS_OPTIONAL(left))
@@ -5742,8 +5741,30 @@ BITSTRUCT_OK:
 	bool optional = IS_OPTIONAL(left) || IS_OPTIONAL(right);
 
 	// 5. In the pointer case we have to treat this differently.
-	if (left_type_canonical->type_kind == TYPE_POINTER)
+	if (flat->type_kind == TYPE_ENUM)
 	{
+		if (type_flat_distinct_inline(no_fail)->type_kind != TYPE_ENUM)
+		{
+			RETURN_SEMA_ERROR(expr, "A value of type %s cannot be added to or subtracted from.", type_quoted_error_string(left->type));
+		}
+		// 7. Finally, check that the right side is indeed an integer.
+		if (!type_is_integer(right->type->canonical))
+		{
+			RETURN_SEMA_ERROR(right,
+			                  "The right side was '%s' but only integers are valid on the right side of %s when the left side is an enum.",
+			                  type_to_error_string(right->type),
+			                  token_type_to_string(binaryop_to_token(expr->binary_expr.operator)));
+		}
+		if (!cast_implicit(context, right, flat->decl->enums.type_info->type, false)) return false;
+		goto END;
+	}
+	if (type_is_pointer_like(flat))
+	{
+		// Not inline pointer-like
+		if (!type_is_pointer_like(no_fail))
+		{
+			RETURN_SEMA_ERROR(expr, "A value of type %s cannot be added to or subtracted from.", type_quoted_error_string(left->type));
+		}
 		// 7. Finally, check that the right side is indeed an integer.
 		if (!type_is_integer(right->type->canonical))
 		{
@@ -5866,24 +5887,35 @@ static Type *defer_iptr_cast(Expr *maybe_pointer, Expr *maybe_diff)
 static bool sema_expr_analyse_enum_add_sub(SemaContext *context, Expr *expr, Expr *left, Expr *right)
 {
 	Type *left_type = type_no_optional(left->type)->canonical;
-	Type *right_type = type_no_optional(right->type)->canonical;
-
 	bool is_sub = expr->binary_expr.operator == BINARYOP_SUB;
+	bool swapped = false;
+	if (left_type->type_kind != TYPE_ENUM)
+	{
+		if (is_sub)
+		{
+			RETURN_SEMA_ERROR(right, "You can't subtract an enum from a value.");
+		}
+		Expr *temp = right;
+		right = left;
+		left = temp;
+		left_type = type_no_optional(left->type)->canonical;
+	}
+	Type *right_type = type_no_optional(right->type)->canonical;
 
 	// Enum - Enum / Enum + Enum
 	if (right_type->type_kind == TYPE_ENUM)
 	{
+		if (!is_sub) SEMA_DEPRECATED(expr, "Adding two enums is deprecated.");
 		if (left_type != right_type)
 		{
 
-			SEMA_ERROR(expr, is_sub ? "Cannot subtract %s from %s" : "Cannot add %s to %s",
-					   type_quoted_error_string(left->type),
-					   type_quoted_error_string(right->type));
-			return false;
+			RETURN_SEMA_ERROR(expr, is_sub ? "Cannot subtract %s from %s" : "Cannot add %s to %s",
+			                  type_quoted_error_string(left->type),
+			                  type_quoted_error_string(right->type));
 		}
 		Type *underlying_type = left_type->decl->enums.type_info->type;
-		if (!cast_explicit(context, left, underlying_type)) return false;
-		if (!cast_explicit(context, right, underlying_type)) return false;
+		sema_expr_convert_enum_to_int(context, left);
+		sema_expr_convert_enum_to_int(context, right);
 		expr->type = type_add_optional(underlying_type, IS_OPTIONAL(left) || IS_OPTIONAL(right));
 		if (expr_both_const(left, right))
 		{
@@ -5902,10 +5934,10 @@ static bool sema_expr_analyse_enum_add_sub(SemaContext *context, Expr *expr, Exp
 		}
 		return true;
 	}
+
 	// Enum - value / Enum + value
-	Type *underlying_type = left_type->decl->enums.type_info->type;
-	if (!cast_explicit(context, left, underlying_type)) return false;
-	if (!cast_explicit(context, right, underlying_type)) return false;
+	sema_expr_convert_enum_to_int(context, left);
+	if (!cast_implicit(context, right, left->type, true)) return false;
 	expr->type = type_add_optional(left_type, IS_OPTIONAL(left) || IS_OPTIONAL(right));
 	if (expr_both_const(left, right))
 	{
@@ -6192,7 +6224,7 @@ static bool sema_expr_analyse_add(SemaContext *context, Expr *expr, Expr *left, 
 		return true;
 	}
 
-	if (left_type->type_kind == TYPE_ENUM)
+	if (left_type->type_kind == TYPE_ENUM || right_type->type_kind == TYPE_ENUM)
 	{
 		return sema_expr_analyse_enum_add_sub(context, expr, left, right);
 	}

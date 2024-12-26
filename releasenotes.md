@@ -6,9 +6,10 @@
 - Split help into normal and "full" help, #1703
 - Removed 'headers' command line option.
 - Add `enum.from_ordinal` and `fault.from_ordinal`
-- Deprecate cast-style conversion from integer to enum.
+- Deprecate cast-style conversion from integer <-> enum.
 - Make deprecation an error in test mode.
 - Add `--win-vs-dirs` to override VS detection dirs.
+- Add `"name"` project property to override the name of the resulting binary. #1719
 
 ### Fixes
 - Fix case trying to initialize a `char[*]*` from a String.
@@ -20,6 +21,10 @@
 - Fix CRT detection on Arch Linux.
 - Fix lexer allowing a trailing underscore (_) with hex and binary literals.
 - Fix `--list-operators` CLI command printing underscore (_) and hash (#).
+- Fix bug in temp allocator when temp memory is exhausted and allocation needs overaligned mem. #1715
+- Incorrectly handles distinct enums and pointers with '+=' and '-=' #1717.
+- Prevent DString from being initialized with "".
+- Fix bug in OnStackAllocator when freeing overallocated data. # #1720
 
 ### Stdlib changes
 - Increase BitWriter.write_bits limit up to 32 bits.
